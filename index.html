@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>PANACEA ENFERMERÍA</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,sans-serif;background:#F5F9FF;color:#2D3748;min-height:100vh}
+  input,select,textarea{font-family:inherit}
+  button{font-family:inherit;cursor:pointer}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useRef, useEffect } = React;
+
+const SUPA_URL = "https://xknursfrqomenfvikfdw.supabase.co";
+const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhrbnVyc2ZycW9tZW5mdmlrZmR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4MjY3MjUsImV4cCI6MjA5MDQwMjcyNX0.AyyOqdot5s7DCnXZYvLQJgDqIwBCoQaaLTgKoPi303A";
+const H = {"Content-Type":"application/json","apikey":SUPA_KEY,"Authorization":`Bearer ${SUPA_KEY}`};
+
+async function dbGetAll(){
+  const r=await fetch(`${SUPA_URL}/rest/v1/enfermeria_registros?order=created_at.desc`,{headers:H});
+  return r.ok?r.json():null;
+}
+async function dbUpsert(reg){
+  const row={id:reg.id,fecha:reg.fecha,hora:reg.hora,nombre:reg.nombre,dni:reg.dni,edad:reg.edad,empresa:reg.empresa,cargo:reg.cargo,enfermera:reg.enfermera,motivo:reg.motivo,t_evol:reg.tEvol,sintomas:reg.sintomas,pa:reg.pa,fc:reg.fc,fr:reg.fr,temp:reg.temp,peso:reg.peso,talla:reg.talla,exposiciones:reg.exposiciones,tiempo:reg.tiempo,epps:reg.epps,lab_resumen:reg.labResumen,triaje:reg.triaje,estado:"pendiente"};
+  const r=await fetch(`${SUPA_URL}/rest/v1/enfermeria_registros`,{method:"POST",headers:{...H,"Prefer":"resolution=merge-duplicates"},body:JSON.stringify(row)});
+  return r.ok;
+}
+async function dbDelete(id){
+  const r=await fetch(`${SUPA_URL}/rest/v1/enfermeria_registros?id=eq.${id}`,{method:"DELETE",headers:H});
+  return r.ok;
+}
+async function dbUpsertMet(row){
+  const r=await fetch(`${SUPA_URL}/rest/v1/medweb_metabolico`,{method:"POST",headers:{...H,"Prefer":"resolution=merge-duplicates"},body:JSON.stringify({...row,updated_at:new Date().toISOString()})});
+  return r.ok;
+}
+
+function triaje(reg){
+  const fc=parseFloat(reg.fc),temp=parseFloat(reg.temp),pa=reg.pa?parseInt(reg.pa.split("/")[0]):null;
+  if(pa>180||pa<80||fc>130||fc<45||temp>39.5||temp<35)return"Rojo";
+  if(pa>140||pa<90||fc>100||fc<60||temp>38||temp<36)return"Amarillo";
+  return"Verde";
+}
+function triajeColor(t){return t==="Rojo"?"#FC8181":t==="Amarillo"?"#F6AD55":"#48BB78";}
+
+const VITALES={pa:{min:90,max:140,unit:"mmHg",label:"Presión Arterial",icon:"🫀"},fc:{min:60,max:100,unit:"lpm",label:"Frec. Cardíaca",icon:"💓"},fr:{min:12,max:20,unit:"rpm",label:"Frec. Resp.",icon:"🫁"},temp:{min:36,max:37.5,unit:"°C",label:"Temperatura",icon:"🌡"},peso:{unit:"kg",label:"Peso",icon:"⚖"},talla:{unit:"m",label:"Talla",icon:"📏"}};
+function getAlerta(k,v){if(!v)return null;const r=VITALES[k];if(!r||r.min===undefined)return null;const n=k==="pa"?parseInt(v.split("/")[0]):parseFloat(v);if(isNaN(n))return null;if(n>r.max)return"alto";if(n<r.min)return"bajo";return"normal";}
+
+const C={bg:"#F5F9FF",white:"#FFF",blue:"#4A90D9",blueLight:"#E8F2FF",teal:"#38B2AC",tealLight:"#E6FFFA",green:"#48BB78",greenLight:"#F0FFF4",amber:"#F6AD55",amberLight:"#FFFAF0",red:"#FC8181",redLight:"#FFF5F5",purple:"#9F7AEA",gray:"#718096",grayLight:"#F7FAFC",border:"#E2E8F0",text:"#2D3748",textSoft:"#718096"};
+
+const emptyReg=()=>({id:Date.now().toString(),fecha:new Date().toISOString().split("T")[0],hora:new Date().toTimeString().slice(0,5),nombre:"",dni:"",edad:"",empresa:"",cargo:"",enfermera:"",motivo:"",tEvol:"",sintomas:"",pa:"",fc:"",fr:"",temp:"",peso:"",talla:"",exposiciones:"",tiempo:"",epps:"",labResumen:"",triaje:"Verde",estado:"pendiente"});
+const emptyMet=()=>({circunferencia_abdominal:"",colesterol_total:"",hdl:"",ldl:"",vldl:"",trigliceridos:"",glucosa_ayunas:"",hba1c:"",acido_urico:"",creatinina:"",tipo_consulta:"Asistencial",dx_metabolico:"Normal"});
+
+const PASOS=[{n:1,label:"Paciente",icon:"👤"},{n:2,label:"Vitales",icon:"📊"},{n:3,label:"Antecedentes",icon:"🏭"},{n:4,label:"Laboratorio",icon:"🔬"},{n:5,label:"Metabólico",icon:"🧪"}];
+
+function Btn({label,onClick,color,textColor="#fff",small,disabled}){
+  return <button disabled={disabled} onClick={onClick} style={{borderRadius:8,padding:small?"6px 12px":"9px 18px",fontSize:small?11:13,fontWeight:700,border:"none",background:color||C.blue,color:textColor,display:"inline-flex",alignItems:"center",gap:5,opacity:disabled?.6:1,cursor:disabled?"not-allowed":"pointer"}}>{label}</button>;
+}
+function Inp({label,value,onChange,type="text",full,placeholder}){
+  const s={border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 10px",fontSize:13,background:C.grayLight,outline:"none",color:C.text,width:"100%",boxSizing:"border-box"};
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:3,flex:1,minWidth:full?"100%":140,...(full?{flex:"1 1 100%"}:{})}}>
+      <label style={{fontSize:11,fontWeight:700,color:C.textSoft,textTransform:"uppercase"}}>{label}</label>
+      {type==="textarea"?<textarea value={value} onChange={e=>onChange&&onChange(e.target.value)} placeholder={placeholder} style={{...s,resize:"vertical",minHeight:68,fontFamily:"inherit"}}/>
+      :<input type={type} value={value} onChange={e=>onChange&&onChange(e.target.value)} placeholder={placeholder} style={s}/>}
+    </div>
+  );
+}
+function InpNum({label,value,onChange,unit}){
+  return(
+    <div style={{display:"flex",flexDirection:"column",gap:2,flex:1,minWidth:100}}>
+      <label style={{fontSize:10,fontWeight:700,color:C.textSoft,textTransform:"uppercase"}}>{label}{unit&&<span style={{color:C.gray}}> ({unit})</span>}</label>
+      <input type="number" value={value} onChange={e=>onChange(e.target.value)} style={{border:`1px solid ${C.border}`,borderRadius:7,padding:"6px 8px",fontSize:13,background:C.grayLight,outline:"none",color:C.text,width:"100%",boxSizing:"border-box"}}/>
+    </div>
+  );
+}
+function VitalBox({vkey,value,onChange}){
+  const r=VITALES[vkey];const a=getAlerta(vkey,value);
+  const ac=a==="alto"?C.red:a==="bajo"?C.blue:a==="normal"?C.green:C.border;
+  const bg=a==="alto"?C.redLight:a==="bajo"?C.blueLight:a==="normal"?C.greenLight:C.grayLight;
+  return(
+    <div style={{flex:1,minWidth:100,background:bg,border:`2px solid ${ac}`,borderRadius:12,padding:"10px",display:"flex",flexDirection:"column",gap:3}}>
+      <div style={{fontSize:16,textAlign:"center"}}>{r.icon}</div>
+      <label style={{fontSize:9,fontWeight:700,color:C.textSoft,textTransform:"uppercase",textAlign:"center"}}>{r.label}</label>
+      <input value={value} onChange={e=>onChange(e.target.value)} placeholder={r.min!==undefined?`${r.min}–${r.max}`:"—"} style={{border:`1px solid ${ac}`,borderRadius:7,padding:"5px 6px",fontSize:13,fontWeight:700,textAlign:"center",background:"white",color:a==="alto"?C.red:a==="bajo"?C.blue:C.text,outline:"none",width:"100%",boxSizing:"border-box"}}/>
+      <div style={{fontSize:9,color:ac,textAlign:"center",fontWeight:700}}>{a==="alto"?"▲ ALTO":a==="bajo"?"▼ BAJO":a==="normal"?"✓ OK":r.unit}</div>
+    </div>
+  );
+}
+function Card({title,icon,tag,tagColor,children,accent}){
+  return(
+    <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:14,marginBottom:14,overflow:"hidden",boxShadow:"0 1px 4px rgba(0,0,0,.05)"}}>
+      <div style={{background:accent||C.blueLight,padding:"9px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:`1px solid ${C.border}`}}>
+        <span style={{fontWeight:700,fontSize:13,color:C.text}}>{icon} {title}</span>
+        {tag&&<span style={{background:(tagColor||C.blue)+"22",color:tagColor||C.blue,borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{tag}</span>}
+      </div>
+      <div style={{padding:"14px 16px"}}>{children}</div>
+    </div>
+  );
+}
+
+async function callClaudePDF(b64,prompt){
+  const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1200,messages:[{role:"user",content:[{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}},{type:"text",text:prompt}]}]})});
+  const d=await r.json();return d.content.filter(b=>b.type==="text").map(b=>b.text).join("\n");
+}
+async function readB64(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(",")[1]);r.onerror=rej;r.readAsDataURL(file);});}
+
+function App(){
+  const [vista,setVista]=useState("lista");
+  const [registros,setRegistros]=useState([]);
+  const [reg,setReg]=useState(emptyReg());
+  const [met,setMet]=useState(emptyMet());
+  const [paso,setPaso]=useState(1);
+  const [notif,setNotif]=useState("");
+  const [labLoading,setLabLoading]=useState(false);
+  const [labFiles,setLabFiles]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [dbOnline,setDbOnline]=useState(null);
+  const [confirmando,setConfirmando]=useState(false);
+  const labRef=useRef();
+
+  useEffect(()=>{
+    (async()=>{
+      setLoading(true);
+      try{const rows=await dbGetAll();if(rows===null){setDbOnline(false);}else{setDbOnline(true);setRegistros(rows.map(r=>({id:r.id,fecha:r.fecha,hora:r.hora,nombre:r.nombre||"",dni:r.dni||"",edad:r.edad||"",empresa:r.empresa||"",cargo:r.cargo||"",enfermera:r.enfermera||"",motivo:r.motivo||"",tEvol:r.t_evol||"",sintomas:r.sintomas||"",pa:r.pa||"",fc:r.fc||"",fr:r.fr||"",temp:r.temp||"",peso:r.peso||"",talla:r.talla||"",exposiciones:r.exposiciones||"",tiempo:r.tiempo||"",epps:r.epps||"",labResumen:r.lab_resumen||"",triaje:r.triaje||"Verde",estado:r.estado||"pendiente"})));}}
+      catch{setDbOnline(false);}
+      setLoading(false);
+    })();
+  },[]);
+
+  const toast=(m)=>{setNotif(m);setTimeout(()=>setNotif(""),3200);};
+  const upd=(k,v)=>setReg(r=>({...r,[k]:v}));
+  const updM=(k,v)=>setMet(m=>({...m,[k]:v}));
+  const imc=()=>{const p=parseFloat(reg.peso),t=parseFloat(reg.talla);return(p&&t)?(p/(t*t)).toFixed(1):"—";};
+  const imcColor=()=>{const v=parseFloat(imc());if(isNaN(v))return C.textSoft;if(v<18.5)return C.blue;if(v<25)return C.green;if(v<30)return C.amber;return C.red;};
+  const imcLabel=()=>{const v=parseFloat(imc());if(isNaN(v))return"—";if(v<18.5)return"Bajo peso";if(v<25)return"Normal";if(v<30)return"Sobrepeso";return"Obesidad";};
+
+  const handleLabPDFs=async(e)=>{
+    const files=Array.from(e.target.files);if(!files.length)return;
+    setLabLoading(true);setLabFiles(files.map(f=>({name:f.name,estado:"procesando",texto:""})));
+    const resultados=[];
+    for(let i=0;i<files.length;i++){
+      try{
+        const b64=await readB64(files[i]);
+        const texto=await callClaudePDF(b64,"Analiza este resultado de laboratorio. Extrae y estructura: 1.HEMATOLOGÍA: hemoglobina, hematocrito, leucocitos, plaquetas 2.BIOQUÍMICA: glucosa, creatinina, urea, perfil lipídico, enzimas hepáticas 3.ORINA: densidad, pH, leucocitos, proteínas, glucosa 4.OTROS resultados relevantes 5.RESUMEN ENFERMERÍA: valores alterados y si requiere atención inmediata. Idioma: español.");
+        resultados.push({name:files[i].name,estado:"listo",texto});
+        setLabFiles(prev=>prev.map((f,idx)=>idx===i?{...f,estado:"listo",texto}:f));
+      }catch{resultados.push({name:files[i].name,estado:"error",texto:"No se pudo procesar."});setLabFiles(prev=>prev.map((f,idx)=>idx===i?{...f,estado:"error"}:f));}
+    }
+    upd("labResumen",resultados.map(r=>`📄 ${r.name}:\n${r.texto}`).join("\n\n─────\n\n"));
+    setLabLoading(false);toast(`✅ ${resultados.length} archivo(s) procesados`);
+  };
+
+  const guardarRegistro=async()=>{
+    const t=triaje(reg);
+    const r={...reg,triaje:t,estado:"pendiente"};
+    if(t==="Rojo")toast("🔴 ALERTA: Triaje ROJO — atención inmediata");
+    const ok=await dbUpsert(r);
+    const tieneMet=Object.entries(met).some(([k,v])=>k!=="tipo_consulta"&&k!=="dx_metabolico"&&v!=="");
+    if(ok&&tieneMet){
+      const p=parseFloat(reg.peso),th=parseFloat(reg.talla);const imcVal=p&&th?(p/(th*th)).toFixed(1):null;
+      await dbUpsertMet({id:r.id+"_m",paciente_dni:reg.dni,paciente_nombre:reg.nombre,paciente_empresa:reg.empresa,fecha:reg.fecha,peso:p||null,talla:th||null,imc:parseFloat(imcVal)||null,pa_sistolica:parseInt(reg.pa?.split("/")?.[0])||null,pa_diastolica:parseInt(reg.pa?.split("/")?.[1])||null,circunferencia_abdominal:parseFloat(met.circunferencia_abdominal)||null,colesterol_total:parseFloat(met.colesterol_total)||null,hdl:parseFloat(met.hdl)||null,ldl:parseFloat(met.ldl)||null,vldl:parseFloat(met.vldl)||null,trigliceridos:parseFloat(met.trigliceridos)||null,glucosa_ayunas:parseFloat(met.glucosa_ayunas)||null,hba1c:parseFloat(met.hba1c)||null,acido_urico:parseFloat(met.acido_urico)||null,creatinina:parseFloat(met.creatinina)||null,tipo_consulta:met.tipo_consulta,dx_metabolico:met.dx_metabolico});
+    }
+    if(ok){
+      const rows=await dbGetAll();
+      setRegistros(rows?rows.map(r=>({id:r.id,fecha:r.fecha,hora:r.hora,nombre:r.nombre||"",dni:r.dni||"",edad:r.edad||"",empresa:r.empresa||"",cargo:r.cargo||"",enfermera:r.enfermera||"",motivo:r.motivo||"",tEvol:r.t_evol||"",sintomas:r.sintomas||"",pa:r.pa||"",fc:r.fc||"",fr:r.fr||"",temp:r.temp||"",peso:r.peso||"",talla:r.talla||"",exposiciones:r.exposiciones||"",tiempo:r.tiempo||"",epps:r.epps||"",labResumen:r.lab_resumen||"",triaje:r.triaje||"Verde",estado:r.estado||"pendiente"})):[]);
+      toast("💾 Registro guardado en Supabase ✅");setVista("lista");setConfirmando(false);
+    }else toast("❌ Error al guardar — verifica conexión");
+  };
+
+  const eliminarReg=async(id)=>{const ok=await dbDelete(id);if(ok){setRegistros(prev=>prev.filter(r=>r.id!==id));toast("🗑 Eliminado");}};
+  const nuevo=()=>{setReg(emptyReg());setMet(emptyMet());setLabFiles([]);setPaso(1);setConfirmando(false);setVista("form");};
+  const abrir=(r)=>{setReg(r);setMet(emptyMet());setLabFiles([]);setPaso(1);setConfirmando(false);setVista("form");};
+  const pendientes=registros.filter(r=>r.estado==="pendiente").length;
+
+  return(
+    <div style={{minHeight:"100vh",background:C.bg}}>
+      {/* MODAL CONFIRMAR */}
+      {confirmando&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:998,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{background:C.white,borderRadius:16,padding:24,maxWidth:420,width:"100%",boxShadow:"0 8px 32px rgba(0,0,0,.2)"}}>
+            <div style={{fontWeight:800,fontSize:16,marginBottom:12}}>📋 Confirmar registro</div>
+            <div style={{background:C.grayLight,borderRadius:10,padding:12,marginBottom:16,fontSize:12,lineHeight:1.8}}>
+              <div><strong>Paciente:</strong> {reg.nombre||"—"} | DNI: {reg.dni||"—"}</div>
+              <div><strong>Empresa:</strong> {reg.empresa||"—"} | <strong>Cargo:</strong> {reg.cargo||"—"}</div>
+              <div><strong>Motivo:</strong> {reg.motivo||"—"}</div>
+              <div><strong>PA:</strong> {reg.pa||"—"} | <strong>FC:</strong> {reg.fc||"—"} | <strong>T°:</strong> {reg.temp||"—"}</div>
+              <div style={{marginTop:6}}><strong>Triaje: </strong>
+                <span style={{background:triajeColor(triaje(reg)),color:"#fff",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{triaje(reg)}</span>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <Btn label="✎ Corregir" onClick={()=>setConfirmando(false)} color={C.gray}/>
+              <Btn label="✅ Confirmar y guardar" onClick={guardarRegistro} color={C.green}/>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {notif&&<div style={{position:"fixed",top:16,right:16,background:C.teal,color:"#fff",padding:"10px 18px",borderRadius:10,fontWeight:700,fontSize:13,zIndex:999,boxShadow:"0 4px 16px rgba(0,0,0,.12)"}}>{notif}</div>}
+
+      {/* HEADER */}
+      <div style={{background:"linear-gradient(135deg,#4A90D9,#38B2AC)",color:"#fff",padding:"14px 20px",boxShadow:"0 2px 10px rgba(74,144,217,.3)"}}>
+        <div style={{maxWidth:860,margin:"0 auto",display:"flex",alignItems:"center",gap:12}}>
+          <div style={{width:44,height:44,borderRadius:"50%",background:"rgba(255,255,255,.2)",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:18,flexShrink:0}}>P</div>
+          <div>
+            <div style={{fontSize:19,fontWeight:800,letterSpacing:.5}}>PANACEA ENFERMERÍA</div>
+            <div style={{fontSize:11,opacity:.85,display:"flex",alignItems:"center",gap:6}}>
+              Registro de Triaje · Supabase ☁
+              <span style={{background:dbOnline===null?"rgba(255,255,255,.3)":dbOnline?"#48BB78":"#FC8181",borderRadius:20,padding:"1px 8px",fontSize:10,fontWeight:700}}>
+                {dbOnline===null?"⏳ Conectando…":dbOnline?"✓ Conectado":"⚠ Sin conexión"}
+              </span>
+            </div>
+          </div>
+          <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
+            {vista==="form"&&<Btn label="📋 Lista" onClick={()=>setVista("lista")} color="rgba(255,255,255,.2)"/>}
+            {vista==="lista"&&<Btn label="+ Nuevo Registro" onClick={nuevo} color="rgba(255,255,255,.9)" textColor="#2D3748"/>}
+            {vista==="lista"&&pendientes>0&&<span style={{background:"rgba(255,255,255,.2)",color:"#fff",borderRadius:20,padding:"4px 12px",fontSize:12,fontWeight:700}}>⏳ {pendientes} pendiente(s)</span>}
+          </div>
+        </div>
+      </div>
+
+      <div style={{maxWidth:860,margin:"0 auto",padding:"20px 14px"}}>
+
+        {/* LISTA */}
+        {vista==="lista"&&(
+          <div>
+            <div style={{display:"flex",gap:10,marginBottom:16,flexWrap:"wrap"}}>
+              {[{l:"Total",v:registros.length,bg:C.blueLight,c:C.blue,i:"📋"},{l:"Pendientes",v:pendientes,bg:C.amberLight,c:C.amber,i:"⏳"},{l:"Triaje Rojo",v:registros.filter(r=>r.triaje==="Rojo").length,bg:C.redLight,c:C.red,i:"🔴"},{l:"Atendidos",v:registros.filter(r=>r.estado==="atendido").length,bg:C.greenLight,c:C.green,i:"✅"}].map(s=>(
+                <div key={s.l} style={{flex:1,minWidth:90,background:s.bg,border:`1px solid ${s.c}33`,borderRadius:12,padding:"12px 10px",textAlign:"center"}}>
+                  <div style={{fontSize:20}}>{s.i}</div>
+                  <div style={{fontSize:22,fontWeight:900,color:s.c,lineHeight:1}}>{s.v}</div>
+                  <div style={{fontSize:10,color:s.c,fontWeight:700,marginTop:2}}>{s.l}</div>
+                </div>
+              ))}
+            </div>
+            {loading?<div style={{textAlign:"center",padding:"48px",color:C.textSoft}}>⏳ Cargando desde Supabase...</div>
+            :!dbOnline?<div style={{textAlign:"center",padding:"32px",background:C.redLight,borderRadius:12,color:C.red,fontWeight:700}}>⚠ Sin conexión a Supabase. Verifica tu conexión a internet.</div>
+            :registros.length===0?(<div style={{textAlign:"center",padding:"52px 0",color:C.textSoft}}><div style={{fontSize:52,marginBottom:10}}>📋</div><div style={{fontWeight:700,fontSize:16}}>Sin registros aún</div><div style={{fontSize:12,marginTop:4}}>Presiona "+ Nuevo Registro" para comenzar</div></div>)
+            :(<div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:14,overflow:"hidden"}}>
+              {registros.map((r,i)=>(
+                <div key={r.id} onClick={()=>abrir(r)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",borderBottom:i<registros.length-1?`1px solid ${C.border}`:"none",cursor:"pointer",background:i%2===0?C.white:C.grayLight}}>
+                  <div style={{width:38,height:38,borderRadius:"50%",background:triajeColor(r.triaje||"Verde")+"22",border:`2px solid ${triajeColor(r.triaje||"Verde")}`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:13,color:triajeColor(r.triaje||"Verde"),flexShrink:0}}>{(r.triaje||"V")[0]}</div>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:700,fontSize:13}}>{r.nombre||"Sin nombre"}</div>
+                    <div style={{fontSize:11,color:C.textSoft}}>DNI: {r.dni||"—"} · {r.empresa||"—"} · {r.hora}</div>
+                    {r.motivo&&<div style={{fontSize:11,color:C.textSoft,marginTop:1}}>📋 {r.motivo}</div>}
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",gap:4,alignItems:"flex-end"}}>
+                    <span style={{background:triajeColor(r.triaje||"Verde"),color:"#fff",borderRadius:20,padding:"2px 9px",fontSize:11,fontWeight:700}}>{r.triaje||"Verde"}</span>
+                    <span style={{background:r.estado==="pendiente"?C.amber:C.green,color:"#fff",borderRadius:20,padding:"2px 9px",fontSize:10,fontWeight:700}}>{r.estado}</span>
+                    <div style={{fontSize:10,color:C.textSoft}}>{r.fecha}</div>
+                  </div>
+                  <button onClick={e=>{e.stopPropagation();eliminarReg(r.id);}} style={{background:C.redLight,border:`1px solid ${C.red}`,color:C.red,borderRadius:7,padding:"4px 9px",fontSize:11,fontWeight:700,marginLeft:4}}>🗑</button>
+                </div>
+              ))}
+            </div>)}
+          </div>
+        )}
+
+        {/* FORM */}
+        {vista==="form"&&(
+          <div>
+            {/* STEPPER */}
+            <div style={{display:"flex",marginBottom:20,background:C.white,borderRadius:12,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+              {PASOS.map((p,i)=>(
+                <div key={p.n} onClick={()=>setPaso(p.n)} style={{flex:1,padding:"9px 4px",textAlign:"center",cursor:"pointer",background:paso===p.n?C.blue:paso>p.n?C.teal+"22":"transparent",color:paso===p.n?"#fff":paso>p.n?C.teal:C.textSoft,borderRight:i<PASOS.length-1?`1px solid ${C.border}`:"none",transition:"all .2s"}}>
+                  <div style={{fontSize:16}}>{p.icon}</div>
+                  <div style={{fontSize:10,fontWeight:700}}>{p.label}</div>
+                  {paso>p.n&&<div style={{fontSize:9,color:C.teal}}>✓</div>}
+                </div>
+              ))}
+            </div>
+
+            {/* Triaje live */}
+            {(reg.pa||reg.fc||reg.temp)&&(
+              <div style={{display:"flex",alignItems:"center",gap:10,padding:"8px 14px",background:triajeColor(triaje(reg))+"22",border:`1px solid ${triajeColor(triaje(reg))}`,borderRadius:10,marginBottom:12}}>
+                <span style={{fontSize:20}}>{triaje(reg)==="Rojo"?"🔴":triaje(reg)==="Amarillo"?"🟡":"🟢"}</span>
+                <div><div style={{fontWeight:800,color:triajeColor(triaje(reg)),fontSize:13}}>Triaje en tiempo real: {triaje(reg)}</div><div style={{fontSize:11,color:C.textSoft}}>Se actualiza automáticamente</div></div>
+              </div>
+            )}
+
+            {/* PASO 1 */}
+            {paso===1&&(
+              <>
+                <Card title="Datos del Paciente" icon="👤" tag="IDENTIFICACIÓN" tagColor={C.blue} accent={C.blueLight}>
+                  <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:10}}><Inp label="Nombre completo" value={reg.nombre} onChange={v=>upd("nombre",v)} full placeholder="Apellidos y nombres"/></div>
+                  <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:10}}>
+                    <Inp label="DNI" value={reg.dni} onChange={v=>upd("dni",v)} placeholder="12345678"/>
+                    <Inp label="Edad" value={reg.edad} onChange={v=>upd("edad",v)} type="number" placeholder="años"/>
+                    <Inp label="Fecha" value={reg.fecha} onChange={v=>upd("fecha",v)} type="date"/>
+                    <Inp label="Hora" value={reg.hora} onChange={v=>upd("hora",v)} type="time"/>
+                  </div>
+                  <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:10}}>
+                    <Inp label="Empresa" value={reg.empresa} onChange={v=>upd("empresa",v)}/>
+                    <Inp label="Cargo" value={reg.cargo} onChange={v=>upd("cargo",v)}/>
+                  </div>
+                  <Inp label="Personal responsable" value={reg.enfermera} onChange={v=>upd("enfermera",v)} placeholder="Nombre de la enfermera / técnico"/>
+                </Card>
+                <Card title="Motivo de Consulta" icon="📋" tag="SUBJETIVO" tagColor={C.purple} accent="#FAF5FF">
+                  <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:10}}><Inp label="Motivo principal" value={reg.motivo} onChange={v=>upd("motivo",v)} full placeholder="¿Por qué consulta hoy?"/></div>
+                  <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+                    <Inp label="Tiempo de evolución" value={reg.tEvol} onChange={v=>upd("tEvol",v)} placeholder="Ej: 2 días"/>
+                    <Inp label="Síntomas asociados" value={reg.sintomas} onChange={v=>upd("sintomas",v)} placeholder="Ej: fiebre, dolor"/>
+                  </div>
+                </Card>
+              </>
+            )}
+
+            {/* PASO 2 */}
+            {paso===2&&(
+              <Card title="Signos Vitales" icon="📊" tag="OBJETIVO" tagColor={C.teal} accent={C.tealLight}>
+                <div style={{background:"#FFF9E6",border:`1px solid ${C.amber}`,borderRadius:9,padding:"8px 12px",fontSize:12,color:"#7B4F00",marginBottom:12}}>
+                  💡 <span style={{color:C.green,fontWeight:700}}>verde=normal</span> · <span style={{color:C.red,fontWeight:700}}>rojo=alto</span> · <span style={{color:C.blue,fontWeight:700}}>azul=bajo</span>
+                </div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
+                  {["pa","fc","fr","temp","peso","talla"].map(k=><VitalBox key={k} vkey={k} value={reg[k]} onChange={v=>upd(k,v)}/>)}
+                  <div style={{flex:1,minWidth:100,background:"#FAF5FF",border:`2px solid ${C.purple}`,borderRadius:12,padding:"10px",display:"flex",flexDirection:"column",gap:3,alignItems:"center",justifyContent:"center"}}>
+                    <div style={{fontSize:16}}>🧮</div>
+                    <div style={{fontSize:9,fontWeight:700,color:C.textSoft,textTransform:"uppercase"}}>IMC</div>
+                    <div style={{fontSize:20,fontWeight:900,color:imcColor()}}>{imc()}</div>
+                    <div style={{fontSize:9,color:imcColor(),fontWeight:700}}>{imcLabel()}</div>
+                  </div>
+                </div>
+              </Card>
+            )}
+
+            {/* PASO 3 */}
+            {paso===3&&(
+              <Card title="Antecedentes Ocupacionales" icon="🏭" tag="RIESGO LABORAL" tagColor={C.amber} accent={C.amberLight}>
+                <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:10}}><Inp label="Exposiciones" value={reg.exposiciones} onChange={v=>upd("exposiciones",v)} full type="textarea" placeholder="Ruido, polvo, químicos, ergonómicos..."/></div>
+                <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+                  <Inp label="Tiempo de servicio" value={reg.tiempo} onChange={v=>upd("tiempo",v)} placeholder="Ej: 3 años"/>
+                  <Inp label="EPPs" value={reg.epps} onChange={v=>upd("epps",v)} placeholder="Ej: casco, guantes"/>
+                </div>
+              </Card>
+            )}
+
+            {/* PASO 4 */}
+            {paso===4&&(
+              <Card title="Resultados de Laboratorio" icon="🔬" tag="ANÁLISIS IA" tagColor={C.green} accent={C.greenLight}>
+                <input ref={labRef} type="file" accept="application/pdf" multiple style={{display:"none"}} onChange={handleLabPDFs}/>
+                <div onClick={()=>labRef.current&&labRef.current.click()} style={{border:`2px dashed ${C.blue}`,borderRadius:12,padding:"24px 20px",textAlign:"center",cursor:"pointer",background:C.blueLight,marginBottom:14}}>
+                  <div style={{fontSize:32,marginBottom:6}}>📂</div>
+                  <div style={{fontWeight:700,color:C.blue,fontSize:13}}>Clic para seleccionar PDFs de laboratorio</div>
+                  <div style={{fontSize:11,color:C.textSoft,marginTop:3}}>Múltiples archivos · IA analiza automáticamente</div>
+                </div>
+                {labLoading&&<div style={{background:C.amberLight,border:`1px solid ${C.amber}`,borderRadius:9,padding:"10px 14px",fontSize:13,color:"#7B4F00",marginBottom:12}}>⏳ Analizando PDFs con IA...</div>}
+                {labFiles.map((f,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:f.estado==="listo"?C.greenLight:f.estado==="error"?C.redLight:C.amberLight,borderRadius:7,marginBottom:5,border:`1px solid ${f.estado==="listo"?C.green:f.estado==="error"?C.red:C.amber}`}}>
+                    <span>{f.estado==="listo"?"✅":f.estado==="error"?"❌":"⏳"}</span>
+                    <span style={{fontSize:12,flex:1,fontWeight:600}}>{f.name}</span>
+                    <span style={{fontSize:10,color:C.textSoft}}>{f.estado}</span>
+                  </div>
+                ))}
+                {reg.labResumen&&<div style={{marginTop:8}}><Inp label="✏ Editar / agregar notas" value={reg.labResumen} onChange={v=>upd("labResumen",v)} type="textarea" full/></div>}
+              </Card>
+            )}
+
+            {/* PASO 5 */}
+            {paso===5&&(
+              <Card title="Parámetros Metabólicos" icon="🧪" tag="DASHBOARD MEDWEB" tagColor={C.purple} accent="#FAF5FF">
+                <div style={{background:C.blueLight,border:`1px solid ${C.blue}`,borderRadius:8,padding:"8px 12px",fontSize:11,color:C.blue,marginBottom:14,fontWeight:600}}>
+                  💡 Estos datos se enviarán al <strong>Dashboard Metabólico</strong> del Dr. Ochoa en MEDWEB
+                </div>
+                <div style={{background:C.amberLight,border:`1px solid ${C.amber}`,borderRadius:8,padding:"7px 12px",fontSize:11,color:"#7B4F00",marginBottom:12}}>
+                  ★ <strong>Circunferencia abdominal</strong> es necesaria para diagnóstico de Síndrome Metabólico IDF
+                </div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
+                  <InpNum label="Circ. Abdominal ★" value={met.circunferencia_abdominal} onChange={v=>updM("circunferencia_abdominal",v)} unit="cm"/>
+                </div>
+                <div style={{fontWeight:700,fontSize:11,color:C.textSoft,textTransform:"uppercase",marginBottom:8}}>Perfil Lipídico</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
+                  <InpNum label="Colesterol Total" value={met.colesterol_total} onChange={v=>updM("colesterol_total",v)} unit="mg/dL"/>
+                  <InpNum label="HDL" value={met.hdl} onChange={v=>updM("hdl",v)} unit="mg/dL"/>
+                  <InpNum label="LDL" value={met.ldl} onChange={v=>updM("ldl",v)} unit="mg/dL"/>
+                  <InpNum label="VLDL" value={met.vldl} onChange={v=>updM("vldl",v)} unit="mg/dL"/>
+                  <InpNum label="Triglicéridos" value={met.trigliceridos} onChange={v=>updM("trigliceridos",v)} unit="mg/dL"/>
+                </div>
+                {(met.colesterol_total&&met.hdl)&&(()=>{
+                  const ct=parseFloat(met.colesterol_total),h=parseFloat(met.hdl),l=parseFloat(met.ldl),tg=parseFloat(met.trigliceridos);
+                  const ct_hdl=h>0?(ct/h).toFixed(2):null;const ldl_hdl=(l&&h>0)?(l/h).toFixed(2):null;const tg_hdl=(tg&&h>0)?(tg/h).toFixed(2):null;
+                  const rc=(v,b,m)=>v>m?"#FC8181":v>b?"#F6AD55":"#48BB78";
+                  return(<div style={{background:C.blueLight,border:`1px solid ${C.blue}`,borderRadius:8,padding:"8px 12px",marginBottom:8}}>
+                    <div style={{fontSize:10,fontWeight:700,color:C.blue,marginBottom:6}}>📊 ÍNDICE ATEROGÉNICO</div>
+                    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                      {ct_hdl&&<span style={{background:rc(ct_hdl,3.5,5)+"33",border:`1px solid ${rc(ct_hdl,3.5,5)}`,borderRadius:6,padding:"3px 8px",fontSize:11,fontWeight:700,color:rc(ct_hdl,3.5,5)}}>CT/HDL: {ct_hdl}</span>}
+                      {ldl_hdl&&<span style={{background:rc(ldl_hdl,2.5,3.5)+"33",border:`1px solid ${rc(ldl_hdl,2.5,3.5)}`,borderRadius:6,padding:"3px 8px",fontSize:11,fontWeight:700,color:rc(ldl_hdl,2.5,3.5)}}>LDL/HDL: {ldl_hdl}</span>}
+                      {tg_hdl&&<span style={{background:rc(tg_hdl,2,3.8)+"33",border:`1px solid ${rc(tg_hdl,2,3.8)}`,borderRadius:6,padding:"3px 8px",fontSize:11,fontWeight:700,color:rc(tg_hdl,2,3.8)}}>TG/HDL: {tg_hdl}</span>}
+                    </div>
+                  </div>);
+                })()}
+                <div style={{fontWeight:700,fontSize:11,color:C.textSoft,textTransform:"uppercase",marginBottom:8}}>Glucometría</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
+                  <InpNum label="Glucosa Ayunas" value={met.glucosa_ayunas} onChange={v=>updM("glucosa_ayunas",v)} unit="mg/dL"/>
+                  <InpNum label="HbA1c" value={met.hba1c} onChange={v=>updM("hba1c",v)} unit="%"/>
+                </div>
+                <div style={{fontWeight:700,fontSize:11,color:C.textSoft,textTransform:"uppercase",marginBottom:8}}>Renal / Articular</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:14}}>
+                  <InpNum label="Ácido Úrico" value={met.acido_urico} onChange={v=>updM("acido_urico",v)} unit="mg/dL"/>
+                  <InpNum label="Creatinina" value={met.creatinina} onChange={v=>updM("creatinina",v)} unit="mg/dL"/>
+                </div>
+                <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+                  <div style={{display:"flex",flexDirection:"column",gap:2,flex:1,minWidth:130}}>
+                    <label style={{fontSize:10,fontWeight:700,color:C.textSoft,textTransform:"uppercase"}}>Tipo Consulta</label>
+                    <select value={met.tipo_consulta} onChange={e=>updM("tipo_consulta",e.target.value)} style={{border:`1px solid ${C.border}`,borderRadius:7,padding:"7px 8px",fontSize:12,background:C.grayLight,color:C.text}}>
+                      <option>Asistencial</option><option>Ocupacional</option>
+                    </select>
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",gap:2,flex:2,minWidth:180}}>
+                    <label style={{fontSize:10,fontWeight:700,color:C.textSoft,textTransform:"uppercase"}}>Dx Metabólico preliminar</label>
+                    <select value={met.dx_metabolico} onChange={e=>updM("dx_metabolico",e.target.value)} style={{border:`1px solid ${C.border}`,borderRadius:7,padding:"7px 8px",fontSize:12,background:C.grayLight,color:C.text}}>
+                      {["Normal","Sobrepeso","Obesidad grado I","Obesidad grado II","Síndrome metabólico","Diabetes mellitus tipo 2","Prediabetes","Hipertensión arterial","Dislipidemia mixta","Hipercolesterolemia","Hipertrigliceridemia"].map(o=><option key={o}>{o}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </Card>
+            )}
+
+            {/* NAVEGACIÓN */}
+            <div style={{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center",paddingBottom:24,flexWrap:"wrap"}}>
+              <div style={{display:"flex",gap:8}}>
+                {paso>1&&<Btn label="← Anterior" onClick={()=>setPaso(p=>p-1)} color={C.gray}/>}
+                {paso<5&&<Btn label="Siguiente →" onClick={()=>setPaso(p=>p+1)} color={C.blue}/>}
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <Btn label="💾 Guardar y Enviar a MEDWEB" onClick={()=>setConfirmando(true)} color={C.green}/>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div style={{textAlign:"center",padding:"12px 0",color:C.textSoft,fontSize:11,borderTop:`1px solid ${C.border}`}}>
+        <strong style={{color:C.blue}}>PANACEA ENFERMERÍA</strong> · Panacea Medicina Ocupacional · panaceamedocup@gmail.com · Arequipa, Perú
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
